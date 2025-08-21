@@ -14,7 +14,7 @@ class GLProcessor extends VideoProcessor {
     quadVBO = null;
     /** @type {WebGLTexture} */
     videoTex = null;
-
+    moderationLabels = ['cell phone'];
     model = null;
     ctx = null;
 
@@ -136,10 +136,14 @@ class GLProcessor extends VideoProcessor {
         this.ctx.lineWidth = 2;
         // this.ctx.filter = "blur(4px)";
 
-        prediction.forEach( (obj) => {
+
+        prediction.forEach((obj) => {
             const [x, y, width, height, label, score] = [obj.bbox[0], obj.bbox[1], obj.bbox[2], obj.bbox[3], obj.class, obj.score]
-            this.ctx.fillText(`${label} - ${Math.round(score * 100)}%`, x + 5, y - 3);
-            this.ctx.strokeRect(x, y, width, height);
+            // this.ctx.fillText(`${label} - ${Math.round(score * 100)}%`, x + 5, y - 3);
+            // this.ctx.strokeRect(x, y, width, height);
+            this.ctx.fillStyle = "red";
+            if (this.moderationLabels.includes(label))
+                this.ctx.fillRect(x, y, width, height);
 
             // const img = this.ctx.getImageData(x, y, width, height);
             // blurRGBA(img, x, y, 65)
@@ -151,8 +155,8 @@ class GLProcessor extends VideoProcessor {
         bitmap.close();
 
         return true;
-    }
 
+    }
 }
 
 /** @import { registerProcessor } from '@zoom/videosdk' */
