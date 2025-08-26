@@ -1,10 +1,7 @@
-importScripts('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest');
-importScripts('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-cpu')
-importScripts('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl')
+importScripts('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs');
 importScripts('https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd')
 
-const moderationLabels = ['cell phone', 'bottle'];
-
+const moderationLabels = ['cell phone', 'bottle', 'mug', 'cup'];
 // Vertex shader: fullscreen quad
 const vertSrc = `#version 300 es
 in vec2 a_position;
@@ -64,7 +61,6 @@ const compositeFragSrc = `#version 300 es
     
     void main() {
         bool shouldBlur = false;
-        
         // Check if current pixel is in any of the blur regions
         for (int i = 0; i < u_regionCount; i++) {
             if (v_uv.x >= u_regions[i].x && v_uv.x <= u_regions[i].x + u_regions[i].z &&
@@ -73,7 +69,6 @@ const compositeFragSrc = `#version 300 es
                 break;
             }
         }
-        
         if (shouldBlur) {
             outColor = texture(u_blur, v_uv);
         } else {
@@ -124,6 +119,8 @@ class BlurProcessor extends VideoProcessor {
     model = null;
     ctx = null;
     regions = [];
+    width = 640;
+    height = 360;
 
     constructor(port, options) {
         super(port, options);
@@ -131,7 +128,6 @@ class BlurProcessor extends VideoProcessor {
         this._inited = false;
     }
     async onInit() {
-        const output = this.getOutput();
         try {
             console.log("Loading model...");
             this.model = await cocoSsd.load();
@@ -139,11 +135,21 @@ class BlurProcessor extends VideoProcessor {
         } catch (error) {
             console.error("Failed to load model:", error);
         }
-        if (!output) return;
         if (!this.gl) return;
     }
 
     onUninit() {
+        if (this.model) {
+            try {
+                if (typeof this.model.dispose === 'function') {
+                    this.model.dispose();
+                }
+                this.model = null;
+            } catch (error) {
+                console.warn("Error disposing model:", error);
+            }
+        }
+
         if (this.gl && !this.gl.isContextLost()) {
             const gl = this.gl;
 
@@ -173,117 +179,118 @@ class BlurProcessor extends VideoProcessor {
         this.weights = null;
         this.region = null;
         this.radius = null;
+        this.regions = [];
         if (this.port) {
             this.port = null;
         }
     }
 
     async processFrame(input, output) {
-        const w = input.codedWidth,
-            h = input.codedHeight;
-        output.width = w;
-        output.height = h;
         if (!this._inited) {
-            this._initGL(output, w, h);
+            this._initGL(output, this.width, this.height);
             this._inited = true;
         }
 
-        // Wait for model to be loaded before proceeding
         if (!this.model) {
             console.log("Model not yet loaded, waiting...");
             return false; // Skip this frame until model is ready
         }
 
         const gl = this.gl;
-        gl.viewport(0, 0, w, h);
+        gl.viewport(0, 0, this.width, this.height);
         gl.bindTexture(gl.TEXTURE_2D, this.texOrig);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, input);
         const bitmap = await createImageBitmap(input);
-        const prediction = await this.model.detect(tf.browser.fromPixels(bitmap));
+        let tensor = null;
+        let prediction = null;
 
-        gl.bindVertexArray(this.vao);
+        try {
+            tensor = tf.browser.fromPixels(bitmap);
+            prediction = await this.model.detect(tensor);
 
-        // H blur: original image -> tex
-        gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
-        gl.useProgram(this.progH);
-        gl.uniform1fv(this.uW, this.weights);
-        gl.uniform1f(this.uO, (this.radius / 8.0) / w);
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, this.texOrig);
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+            gl.bindVertexArray(this.vao);
 
-        // V blur: tex -> tex2
-        gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo2);
-        gl.useProgram(this.progV);
-        gl.uniform1fv(this.uWV, this.weights);
-        gl.uniform1f(this.uOV, (this.radius / 8.0) / h);
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, this.tex);
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+            // H blur: original image -> tex
+            gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
+            gl.useProgram(this.progH);
+            gl.uniform1fv(this.uW, this.weights);
+            gl.uniform1f(this.uO, (this.radius / 8.0) / this.width);
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, this.texOrig);
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
-        // Composite
-        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-        gl.useProgram(this.progC);
+            // V blur: tex -> tex2
+            gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo2);
+            gl.useProgram(this.progV);
+            gl.uniform1fv(this.uWV, this.weights);
+            gl.uniform1f(this.uOV, (this.radius / 8.0) / this.height);
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, this.tex);
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
-        // Collect all regions that need blurring
-        this.regions = [];
-        prediction.forEach((obj) => {
-            const [x, y, width, height, label, score] = [obj.bbox[0], obj.bbox[1], obj.bbox[2], obj.bbox[3], obj.class, obj.score]
+            // Composite
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            gl.useProgram(this.progC);
 
-            if (moderationLabels.includes(label)) {
-                this.regions.push([
-                    x / input.codedWidth,
-                    y / input.codedHeight,
-                    width / input.codedWidth,
-                    height / input.codedHeight
-                ]);
+            this.regions = [];
+            prediction.forEach((obj) => {
+                const [x, y, width, height, label, score] = [obj.bbox[0], obj.bbox[1], obj.bbox[2], obj.bbox[3], obj.class, obj.score]
+                if (moderationLabels.includes(label)) {
+                    this.regions.push([x / this.width, y / this.height, width / this.width, height / this.height]);
+                }
+            });
+
+            // console.log(`Total regions to blur: ${this.regions.length}`);
+            const maxRegions = Math.min(this.regions.length, 10);
+            if (maxRegions > 0) {
+                const regionData = new Float32Array(maxRegions * 4);
+                for (let i = 0; i < maxRegions; i++) {
+                    regionData[i * 4] = this.regions[i][0];     // x
+                    regionData[i * 4 + 1] = this.regions[i][1]; // y
+                    regionData[i * 4 + 2] = this.regions[i][2]; // width
+                    regionData[i * 4 + 3] = this.regions[i][3]; // height
+                }
+                try {
+                    gl.uniform4fv(this.uRegions, regionData);
+                    gl.uniform1i(this.uRegionCount, maxRegions);
+                } catch (error) {
+                    console.error("Error setting WebGL uniforms:", error);
+                }
+            } else {
+                // console.log("No regions to blur");
+                gl.uniform1i(this.uRegionCount, 0);
             }
-        });
 
-        console.log(`Total regions to blur: ${this.regions.length}`);
+            gl.uniform1i(this.uOrig, 0);
+            gl.uniform1i(this.uBlur, 1);
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, this.texOrig);
+            gl.activeTexture(gl.TEXTURE1);
+            gl.bindTexture(gl.TEXTURE_2D, this.tex2);
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
-        // Pass regions to shader (limit to 10 regions as per shader)
-        const maxRegions = Math.min(this.regions.length, 10);
-        if (maxRegions > 0) {
-            // Create a flat array of all region data
-            const regionData = new Float32Array(maxRegions * 4);
-            for (let i = 0; i < maxRegions; i++) {
-                regionData[i * 4] = this.regions[i][0];     // x
-                regionData[i * 4 + 1] = this.regions[i][1]; // y
-                regionData[i * 4 + 2] = this.regions[i][2]; // width
-                regionData[i * 4 + 3] = this.regions[i][3]; // height
+            gl.bindVertexArray(null);
+            // console.log("Prediction", prediction)
+        } finally {
+            if (tensor) {
+                tensor.dispose();
+                tensor = null;
             }
-            try {
-                gl.uniform4fv(this.uRegions, regionData);
-                gl.uniform1i(this.uRegionCount, maxRegions);
-            } catch (error) {
-                console.error("Error setting WebGL uniforms:", error);
+            if (bitmap) {
+                bitmap.close();
             }
-        } else {
-            console.log("No regions to blur");
-            gl.uniform1i(this.uRegionCount, 0);
+            if (input) {
+                input.close();
+            }
+            prediction = null;
         }
-
-        gl.uniform1i(this.uOrig, 0);
-        gl.uniform1i(this.uBlur, 1);
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, this.texOrig);
-        gl.activeTexture(gl.TEXTURE1);
-        gl.bindTexture(gl.TEXTURE_2D, this.tex2);
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-        gl.bindVertexArray(null);
-
-        console.log("Prediction", prediction)
-        input.close();
-        bitmap.close();
         return true;
     }
 
     _initGL(canvas, w, h) {
         const gl = canvas.getContext("webgl2");
         this.gl = gl;
-        gl.viewport(0, 0, w, h);
+        gl.viewport(0, 0, this.width, this.height);
         this.weights = buildGaussianWeights(this.radius);
 
         this.progH = createProgram(gl, vertSrc, blurFragSrcH);
@@ -316,8 +323,8 @@ class BlurProcessor extends VideoProcessor {
             gl.TEXTURE_2D,
             0,
             gl.RGBA,
-            w,
-            h,
+            this.width,
+            this.height,
             0,
             gl.RGBA,
             gl.UNSIGNED_BYTE,
@@ -329,17 +336,11 @@ class BlurProcessor extends VideoProcessor {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
         this.fbo = gl.createFramebuffer();
         gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
-        gl.framebufferTexture2D(
-            gl.FRAMEBUFFER,
-            gl.COLOR_ATTACHMENT0,
-            gl.TEXTURE_2D,
-            this.tex,
-            0
-        );
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.tex, 0);
 
         this.tex2 = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, this.tex2);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.width, this.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -372,3 +373,4 @@ class BlurProcessor extends VideoProcessor {
 }
 
 registerProcessor("gl-processor", BlurProcessor);
+
