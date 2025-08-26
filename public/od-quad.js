@@ -2,117 +2,6 @@ importScripts('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs');
 importScripts('https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd')
 
 const moderationLabels = ['cell phone', 'bottle', 'mug', 'cup'];
-// Vertex shader: fullscreen quad
-const vertSrc = `#version 300 es
-in vec2 a_position;
-in vec2 a_texCoord;
-out vec2 v_uv;
-
-void main() {
-  v_uv = a_texCoord;
-  gl_Position = vec4(a_position, 0.0, 1.0);
-}`;
-
-// Fragment shader: horizontal Gaussian blur
-const blurFragSrcH = `#version 300 es
-    precision mediump float;
-    in vec2 v_uv;
-    uniform sampler2D u_texture;
-    uniform float u_texelOffset;
-    uniform float u_weights[9];
-    out vec4 outColor;
-    void main() {
-      vec2 off = vec2(u_texelOffset, 0.0);
-      vec4 sum = texture(u_texture, v_uv) * u_weights[0];
-      for (int i = 1; i < 9; ++i) {
-        sum += texture(u_texture, v_uv + off * float(i)) * u_weights[i];
-        sum += texture(u_texture, v_uv - off * float(i)) * u_weights[i];
-      }
-      outColor = sum;
-    }`;
-
-// Fragment shader: vertical Gaussian blur
-const blurFragSrcV = `#version 300 es
-    precision mediump float;
-    in vec2 v_uv;
-    uniform sampler2D u_texture;
-    uniform float u_texelOffset;
-    uniform float u_weights[9];
-    out vec4 outColor;
-    void main() {
-      vec2 off = vec2(0.0, u_texelOffset);
-      vec4 sum = texture(u_texture, v_uv) * u_weights[0];
-      for (int i = 1; i < 9; ++i) {
-        sum += texture(u_texture, v_uv + off * float(i)) * u_weights[i];
-        sum += texture(u_texture, v_uv - off * float(i)) * u_weights[i];
-      }
-      outColor = sum;
-    }`;
-
-// Fragment shader: composite original and blurred based on multiple regions
-const compositeFragSrc = `#version 300 es
-    precision mediump float;
-    in vec2 v_uv;
-    uniform sampler2D u_orig;
-    uniform sampler2D u_blur;
-    uniform vec4 u_regions[10]; // Support up to 10 regions
-    uniform int u_regionCount;
-    out vec4 outColor;
-    
-    void main() {
-        bool shouldBlur = false;
-        // Check if current pixel is in any of the blur regions
-        for (int i = 0; i < u_regionCount; i++) {
-            if (v_uv.x >= u_regions[i].x && v_uv.x <= u_regions[i].x + u_regions[i].z &&
-                v_uv.y >= u_regions[i].y && v_uv.y <= u_regions[i].y + u_regions[i].w) {
-                shouldBlur = true;
-                break;
-            }
-        }
-        if (shouldBlur) {
-            outColor = texture(u_blur, v_uv);
-        } else {
-            outColor = texture(u_orig, v_uv);
-        }
-    }`;
-
-// Utility: compile a shader
-function compileShader(gl, type, src) {
-    const s = gl.createShader(type);
-    gl.shaderSource(s, src);
-    gl.compileShader(s);
-    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-        throw new Error(gl.getShaderInfoLog(s));
-    }
-    return s;
-}
-
-// Utility: create a program from vertex and fragment shaders
-function createProgram(gl, vs, fs) {
-    const p = gl.createProgram();
-    gl.attachShader(p, compileShader(gl, gl.VERTEX_SHADER, vs));
-    gl.attachShader(p, compileShader(gl, gl.FRAGMENT_SHADER, fs));
-    gl.linkProgram(p);
-    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
-        throw new Error(gl.getProgramInfoLog(p));
-    }
-    return p;
-}
-
-// Compute Gaussian weights for given radius (9 taps)
-function buildGaussianWeights(sigma) {
-    const w = [];
-    let sum = 0;
-    const twoSigmaSq = 2 * sigma * sigma;
-
-    for (let i = 0; i < 9; i++) {
-        const val = Math.exp(-(i * i) / twoSigmaSq);
-        w.push(val);
-        sum += i === 0 ? val : val * 2;
-    }
-
-    return w.map((x) => x / sum);
-}
 
 // BlurProcessor class
 class BlurProcessor extends VideoProcessor {
@@ -374,3 +263,114 @@ class BlurProcessor extends VideoProcessor {
 
 registerProcessor("gl-processor", BlurProcessor);
 
+// Vertex shader: fullscreen quad
+const vertSrc = `#version 300 es
+in vec2 a_position;
+in vec2 a_texCoord;
+out vec2 v_uv;
+
+void main() {
+  v_uv = a_texCoord;
+  gl_Position = vec4(a_position, 0.0, 1.0);
+}`;
+
+// Fragment shader: horizontal Gaussian blur
+const blurFragSrcH = `#version 300 es
+    precision mediump float;
+    in vec2 v_uv;
+    uniform sampler2D u_texture;
+    uniform float u_texelOffset;
+    uniform float u_weights[9];
+    out vec4 outColor;
+    void main() {
+      vec2 off = vec2(u_texelOffset, 0.0);
+      vec4 sum = texture(u_texture, v_uv) * u_weights[0];
+      for (int i = 1; i < 9; ++i) {
+        sum += texture(u_texture, v_uv + off * float(i)) * u_weights[i];
+        sum += texture(u_texture, v_uv - off * float(i)) * u_weights[i];
+      }
+      outColor = sum;
+    }`;
+
+// Fragment shader: vertical Gaussian blur
+const blurFragSrcV = `#version 300 es
+    precision mediump float;
+    in vec2 v_uv;
+    uniform sampler2D u_texture;
+    uniform float u_texelOffset;
+    uniform float u_weights[9];
+    out vec4 outColor;
+    void main() {
+      vec2 off = vec2(0.0, u_texelOffset);
+      vec4 sum = texture(u_texture, v_uv) * u_weights[0];
+      for (int i = 1; i < 9; ++i) {
+        sum += texture(u_texture, v_uv + off * float(i)) * u_weights[i];
+        sum += texture(u_texture, v_uv - off * float(i)) * u_weights[i];
+      }
+      outColor = sum;
+    }`;
+
+// Fragment shader: composite original and blurred based on multiple regions
+const compositeFragSrc = `#version 300 es
+    precision mediump float;
+    in vec2 v_uv;
+    uniform sampler2D u_orig;
+    uniform sampler2D u_blur;
+    uniform vec4 u_regions[10]; // Support up to 10 regions
+    uniform int u_regionCount;
+    out vec4 outColor;
+    
+    void main() {
+        bool shouldBlur = false;
+        // Check if current pixel is in any of the blur regions
+        for (int i = 0; i < u_regionCount; i++) {
+            if (v_uv.x >= u_regions[i].x && v_uv.x <= u_regions[i].x + u_regions[i].z &&
+                v_uv.y >= u_regions[i].y && v_uv.y <= u_regions[i].y + u_regions[i].w) {
+                shouldBlur = true;
+                break;
+            }
+        }
+        if (shouldBlur) {
+            outColor = texture(u_blur, v_uv);
+        } else {
+            outColor = texture(u_orig, v_uv);
+        }
+    }`;
+
+// Utility: compile a shader
+function compileShader(gl, type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        throw new Error(gl.getShaderInfoLog(s));
+    }
+    return s;
+}
+
+// Utility: create a program from vertex and fragment shaders
+function createProgram(gl, vs, fs) {
+    const p = gl.createProgram();
+    gl.attachShader(p, compileShader(gl, gl.VERTEX_SHADER, vs));
+    gl.attachShader(p, compileShader(gl, gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+        throw new Error(gl.getProgramInfoLog(p));
+    }
+    return p;
+}
+
+// Compute Gaussian weights for given radius (9 taps)
+function buildGaussianWeights(sigma) {
+    const w = [];
+    let sum = 0;
+    const twoSigmaSq = 2 * sigma * sigma;
+
+    for (let i = 0; i < 9; i++) {
+        const val = Math.exp(-(i * i) / twoSigmaSq);
+        w.push(val);
+        sum += i === 0 ? val : val * 2;
+    }
+
+    return w.map((x) => x / sum);
+}
