@@ -1,7 +1,7 @@
 importScripts('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs');
 importScripts('https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd')
 
-const moderationLabels = ['cell phone', 'bottle', 'mug', 'cup'];
+const moderationLabels = ['cell phone', 'bottle', 'cup'];
 
 // BlurProcessor class
 class BlurProcessor extends VideoProcessor {
