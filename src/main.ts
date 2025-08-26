@@ -26,7 +26,7 @@ const startCall = async () => {
     const processor = await mediaStream.createProcessor({
         name: "gl-processor",
         type: "video",
-        url: window.location.origin + "/gl-quad.js",
+        url: window.location.origin + "/od-quad.js",
     });
     // Add a processor
     await mediaStream.addProcessor(processor);
