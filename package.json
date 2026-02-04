@@ -9,20 +9,24 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@types/jsrsasign": "^10.5.13",
+    "@types/node": "^25.2.0",
     "autoprefixer": "^10.4.16",
+    "chalk": "^5.6.2",
+    "clipboardy": "^5.2.1",
+    "commander": "^14.0.3",
+    "dotenv": "^17.2.3",
+    "jsrsasign": "^11.1.0",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.2.2",
-    "vite": "^5.1.6"
+    "vite": "^7.3.1"
   },
   "dependencies": {
     "@tensorflow-models/coco-ssd": "^2.2.3",
     "@tensorflow/tfjs-backend-cpu": "^4.22.0",
     "@tensorflow/tfjs-backend-webgl": "^4.22.0",
     "@tensorflow/tfjs-core": "^4.22.0",
-    "@types/jsrsasign": "^10.5.13",
-    "@zoom/videosdk": "^2.3.5",
-    "glur": "^1.1.2",
-    "jsrsasign": "^11.1.0"
+    "@zoom/videosdk": "^2.3.12"
   }
 }
