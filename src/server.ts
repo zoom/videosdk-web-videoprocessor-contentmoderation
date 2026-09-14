@@ -13,8 +13,8 @@ const rootDir = path.join(__dirname, "..");
 const distPath = path.join(rootDir, "dist");
 const isDev = process.env.NODE_ENV !== "production";
 
-const sdkKey = process.env.VITE_SDK_KEY as string;
-const sdkSecret = process.env.VITE_SDK_SECRET as string;
+const sdkKey = process.env.SDK_KEY as string;
+const sdkSecret = process.env.SDK_SECRET as string;
 const PORT = process.env.PORT || 3001;
 
 // You should sign your JWT with a backend service in a production use-case
@@ -48,7 +48,7 @@ app.get("/api/config", (_req, res) => {
 
 app.post("/zoomtoken", (req, res) => {
   if (!sdkKey || !sdkSecret) {
-    res.status(500).json({ error: "VITE_SDK_KEY or VITE_SDK_SECRET is missing from the .env file" });
+    res.status(500).json({ error: "SDK_KEY or SDK_SECRET is missing from the .env file" });
     return;
   }
   const { sessionName, role } = req.body ?? {};

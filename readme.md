@@ -23,8 +23,8 @@ To get started, clone the repo:
 1. Create a `.env` file in the root directory of the project, you can do this by copying the `.env.example` file (`cp .env.example .env`) and replacing the values with your own. The `.env` file should look like this:
 
    ```
-   VITE_SDK_KEY=abc123XXXXXXXXXX
-   VITE_SDK_SECRET=abc123XXXXXXXXXX
+   SDK_KEY=abc123XXXXXXXXXX
+   SDK_SECRET=abc123XXXXXXXXXX
    ```
 
    Replace `YourZoomVideoSDKKey` and `YourZoomVideoSDKSecret` with your Zoom Video SDK key and secret.
