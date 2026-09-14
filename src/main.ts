@@ -86,7 +86,7 @@ const toggleVideoBtn = document.querySelector("#toggle-video-btn") as HTMLButton
 startBtn.addEventListener("click", async () => {
     startBtn.innerHTML = "Connecting...";
     startBtn.disabled = true;
-    await startCall(token);
+    await startCall();
     startBtn.innerHTML = "Connected";
     startBtn.style.display = "none";
     stopBtn.style.display = "block";
