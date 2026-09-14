@@ -1,24 +1,34 @@
 import ZoomVideo, { VideoPlayer, VideoQuality } from "@zoom/videosdk";
-import { generateSignature } from "./utils";
 import "./style.css";
 
-// You should sign your JWT with a backend service in a production use-case
-const sdkKey = import.meta.env.VITE_SDK_KEY as string;
-const sdkSecret = import.meta.env.VITE_SDK_SECRET as string;
-
 const videoContainer = document.querySelector('video-player-container') as HTMLElement;
-const topic = "TestOne";
+const sessionName = "TestOne";
 const role = 1;
 const username = `User-${String(new Date().getTime()).slice(6)}`;
 const client = ZoomVideo.createClient();
 await client.init("en-US", "Global", { patchJsMedia: true });
 
 const startCall = async () => {
-    // generate a token to join the session - in production this will be done by your backend
-    const token = generateSignature(topic, role, sdkKey, sdkSecret);
+    // ask the server which token endpoint to use, since it is the one reading the .env file
+    const configResponse = await fetch("/api/config");
+    const { endpointUrl } = await configResponse.json();
+
+    // get a token to join the session from the backend, or prompt for one if no endpoint is configured
+    let token: string;
+    if (endpointUrl) {
+        const response = await fetch(endpointUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionName, role }),
+        });
+        const data = await response.json();
+        token = data.token;
+    } else {
+        token = window.prompt("Enter JWT Token") ?? "";
+    }
     // call the renderVideo function whenever a user joins or leaves
     client.on("peer-video-state-change", renderVideo);
-    await client.join(topic, token, username);
+    await client.join(sessionName, token, username);
     const mediaStream = client.getMediaStream();
     await mediaStream.startAudio();
     await mediaStream.startVideo();
@@ -74,10 +84,6 @@ const stopBtn = document.querySelector("#stop-btn") as HTMLButtonElement;
 const toggleVideoBtn = document.querySelector("#toggle-video-btn") as HTMLButtonElement;
 
 startBtn.addEventListener("click", async () => {
-    if (!sdkKey || !sdkSecret) {
-        alert("Please enter SDK Key and SDK Secret in the .env file");
-        return;
-    }
     startBtn.innerHTML = "Connecting...";
     startBtn.disabled = true;
     await startCall();
