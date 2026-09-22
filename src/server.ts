@@ -6,16 +6,16 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import KJUR from "jsrsasign";
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, "..");
 const distPath = path.join(rootDir, "dist");
-const isDev = process.env.NODE_ENV !== "production";
+const isProduction = process.env.NODE_ENV === "production";
 
 const sdkKey = process.env.SDK_KEY as string;
 const sdkSecret = process.env.SDK_SECRET as string;
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 
 // You should sign your JWT with a backend service in a production use-case
 function generateSignature(sessionName: string, role: number) {
@@ -60,31 +60,34 @@ app.post("/zoomtoken", (req, res) => {
   res.json({ token });
 });
 
-if (isDev) {
-  // run vite in middleware mode so edits to the client hot-reload in the browser
+let vite: import("vite").ViteDevServer | undefined;
+
+if (!isProduction) {
   const { createServer } = await import("vite");
-  const vite = await createServer({
+  vite = await createServer({
     root: rootDir,
     server: { middlewareMode: true },
     appType: "custom",
   });
   app.use(vite.middlewares);
-  app.use("*", async (req, res, next) => {
-    try {
-      const html = fs.readFileSync(path.join(rootDir, "index.html"), "utf-8");
-      res.status(200).set({ "Content-Type": "text/html" }).end(await vite.transformIndexHtml(req.originalUrl, html));
-    } catch (error) {
-      vite.ssrFixStacktrace(error as Error);
-      next(error);
-    }
-  });
 } else {
   app.use(express.static(distPath));
-  // serve the built app for any other route
-  app.get("*", (_req, res) => {
-    res.sendFile(path.join(distPath, "index.html"));
-  });
 }
+
+app.get(/^(?!\/api\/config|\/zoomtoken).*/, async (req, res, next) => {
+  try {
+    if (vite) {
+      const rawHtml = fs.readFileSync(path.join(rootDir, "index.html"), "utf-8");
+      const html = await vite.transformIndexHtml(req.originalUrl, rawHtml);
+      res.status(200).set({ "Content-Type": "text/html" }).end(html);
+    } else {
+      res.sendFile(path.join(distPath, "index.html"));
+    }
+  } catch (error) {
+    vite?.ssrFixStacktrace(error as Error);
+    next(error);
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);

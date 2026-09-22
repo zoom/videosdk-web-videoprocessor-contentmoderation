@@ -2,16 +2,31 @@ import ZoomVideo, { VideoPlayer, VideoQuality } from "@zoom/videosdk";
 import "./style.css";
 
 const videoContainer = document.querySelector('video-player-container') as HTMLElement;
-const sessionName = "TestOne";
+const sessionName = "TestSession";
 const role = 1;
 const username = `User-${String(new Date().getTime()).slice(6)}`;
 const client = ZoomVideo.createClient();
 await client.init("en-US", "Global", { patchJsMedia: true });
 
+const readJsonResponse = async <T>(response: Response, requestName: string): Promise<T> => {
+    const responseText = await response.text();
+    if (!response.ok) {
+        throw new Error(`${requestName} failed (${response.status}): ${responseText || response.statusText}`);
+    }
+    if (!responseText) {
+        throw new Error(`${requestName} returned an empty response. Make sure the local API server is running.`);
+    }
+    try {
+        return JSON.parse(responseText) as T;
+    } catch {
+        throw new Error(`${requestName} returned an invalid response.`);
+    }
+};
+
 const startCall = async () => {
     // ask the server which token endpoint to use, since it is the one reading the .env file
     const configResponse = await fetch("/api/config");
-    const { endpointUrl } = await configResponse.json();
+    const { endpointUrl } = await readJsonResponse<{ endpointUrl: string | null }>(configResponse, "Configuration request");
 
     // get a token to join the session from the backend, or prompt for one if no endpoint is configured
     let token: string;
@@ -21,7 +36,10 @@ const startCall = async () => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ sessionName, role }),
         });
-        const data = await response.json();
+        const data = await readJsonResponse<{ token?: string }>(response, "Token request");
+        if (!data.token) {
+            throw new Error("Token request completed without a token.");
+        }
         token = data.token;
     } else {
         token = window.prompt("Enter JWT Token") ?? "";
@@ -82,21 +100,31 @@ const toggleVideo = async () => {
 const startBtn = document.querySelector("#start-btn") as HTMLButtonElement;
 const stopBtn = document.querySelector("#stop-btn") as HTMLButtonElement;
 const toggleVideoBtn = document.querySelector("#toggle-video-btn") as HTMLButtonElement;
+const videoSection = document.querySelector("#video-section") as HTMLElement;
 
 startBtn.addEventListener("click", async () => {
     startBtn.innerHTML = "Connecting...";
     startBtn.disabled = true;
-    await startCall();
-    startBtn.innerHTML = "Connected";
-    startBtn.style.display = "none";
-    stopBtn.style.display = "block";
-    toggleVideoBtn.style.display = "block";
+    try {
+        await startCall();
+        startBtn.innerHTML = "Connected";
+        startBtn.style.display = "none";
+        stopBtn.style.display = "block";
+        toggleVideoBtn.style.display = "block";
+        videoSection.style.display = "block";
+    } catch (error) {
+        console.error("Unable to join the Zoom session", error);
+        window.alert(error instanceof Error ? error.message : "Unable to join the Zoom session.");
+        startBtn.innerHTML = "Join";
+        startBtn.disabled = false;
+    }
 });
 
 stopBtn.addEventListener("click", async () => {
     toggleVideoBtn.style.display = "none";
     await leaveCall();
     stopBtn.style.display = "none";
+    videoSection.style.display = "none";
     startBtn.style.display = "block";
     startBtn.innerHTML = "Join";
     startBtn.disabled = false;
